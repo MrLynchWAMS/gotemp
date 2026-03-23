@@ -3,9 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple GoTemp (v1.2)</title>
-     <link rel="icon"
-        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌡️</text></svg>">
+    <title>Simple GoTemp (v1.3)</title>
     <!-- Load Vernier's official Go Direct library -->
     <script src="https://unpkg.com/@vernier/godirect/dist/godirect.min.umd.js"></script>
     <style>
@@ -57,7 +55,7 @@
             cursor: pointer;
             transition: all 0.2s ease;
             width: 100%;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
         }
 
         button:hover {
@@ -143,10 +141,15 @@
         .status-text {
             color: var(--text-muted);
             font-size: 0.95rem;
-            margin-top: -10px;
             margin-bottom: 20px;
             display: block;
             word-wrap: break-word;
+            padding: 0 10px;
+        }
+        
+        .highlight {
+            font-weight: 600;
+            color: #d97706; /* Amber warning color */
         }
 
     </style>
@@ -155,7 +158,7 @@
 
     <div class="card">
         <button id="connectBtn">Connect Sensor</button>
-        <span class="status-text" id="statusText">Requires Chrome or Edge</span>
+        <span class="status-text" id="statusText">Make sure the sensor is turned <span class="highlight">ON</span> (red Bluetooth light flashing) before connecting.</span>
         
         <div class="data-display" id="tempDisplay">--.-</div>
         
@@ -188,7 +191,7 @@
                 connectBtn.innerText = "Searching...";
                 connectBtn.disabled = true;
                 statusText.style.color = "var(--text-muted)";
-                statusText.innerText = "Select your device in the popup window...";
+                statusText.innerHTML = "Select your device in the popup window...";
 
                 // Prompts the user to select their Vernier device
                 const device = await godirect.selectDevice();
@@ -214,13 +217,13 @@
                 connectBtn.innerText = "Connect Sensor";
                 connectBtn.disabled = false;
                 
-                // Provide specific, on-page error text (no more alerts)
+                // Provide specific, on-page error text
                 let errorMessage = error.message || "Unknown error occurred.";
                 
                 if (window.location.protocol === 'file:') {
                     errorMessage = "Hardware connections are blocked for local files. You must host this file online.";
                 } else if (errorMessage.toLowerCase().includes("user cancelled") || errorMessage.toLowerCase().includes("cancel")) {
-                    errorMessage = "Connection window was closed before selecting a device.";
+                    errorMessage = "Connection cancelled. Did you make sure the red Bluetooth light is flashing?";
                 } else if (errorMessage.toLowerCase().includes("bluetooth") && !navigator.bluetooth) {
                     errorMessage = "Web Bluetooth is not supported/enabled in this browser. Try Google Chrome.";
                 }
