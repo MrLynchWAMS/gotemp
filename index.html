@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple GoTemp</title>
+    <title>Simple GoTemp (v1.2)</title>
+     <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌡️</text></svg>">
     <!-- Load Vernier's official Go Direct library -->
-    <script src="https://unpkg.com/@vernier/godirect/dist/godirect.min.js"></script>
+    <script src="https://unpkg.com/@vernier/godirect/dist/godirect.min.umd.js"></script>
     <style>
         :root {
             --primary: #0ea5e9;
@@ -140,10 +142,11 @@
 
         .status-text {
             color: var(--text-muted);
-            font-size: 0.9rem;
+            font-size: 0.95rem;
             margin-top: -10px;
             margin-bottom: 20px;
             display: block;
+            word-wrap: break-word;
         }
 
     </style>
@@ -183,7 +186,9 @@
             try {
                 // Update UI to show we are trying to connect
                 connectBtn.innerText = "Searching...";
-                statusText.innerText = "Select your device in the popup window";
+                connectBtn.disabled = true;
+                statusText.style.color = "var(--text-muted)";
+                statusText.innerText = "Select your device in the popup window...";
 
                 // Prompts the user to select their Vernier device
                 const device = await godirect.selectDevice();
@@ -202,20 +207,26 @@
                 // Update UI on success
                 connectBtn.innerText = "Connected";
                 connectBtn.style.backgroundColor = "var(--success)";
-                connectBtn.disabled = true;
-                statusText.innerText = "Receiving data...";
+                statusText.innerText = `Receiving data from ${device.name}...`;
 
             } catch (error) {
                 console.error(error);
                 connectBtn.innerText = "Connect Sensor";
-                statusText.innerText = "Ready to connect";
+                connectBtn.disabled = false;
                 
-                // Provide a specific error message based on common issues
-                let errorMessage = error.message;
+                // Provide specific, on-page error text (no more alerts)
+                let errorMessage = error.message || "Unknown error occurred.";
+                
                 if (window.location.protocol === 'file:') {
-                    errorMessage = "Hardware connections are blocked for local files. You must host this file online (e.g., GitHub Pages) for it to work.";
+                    errorMessage = "Hardware connections are blocked for local files. You must host this file online.";
+                } else if (errorMessage.toLowerCase().includes("user cancelled") || errorMessage.toLowerCase().includes("cancel")) {
+                    errorMessage = "Connection window was closed before selecting a device.";
+                } else if (errorMessage.toLowerCase().includes("bluetooth") && !navigator.bluetooth) {
+                    errorMessage = "Web Bluetooth is not supported/enabled in this browser. Try Google Chrome.";
                 }
-                alert(`Connection failed.\n\nError: ${errorMessage}`);
+
+                statusText.style.color = "var(--danger)";
+                statusText.innerText = `Error: ${errorMessage}`;
             }
         });
 
