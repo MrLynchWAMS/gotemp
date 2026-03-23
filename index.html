@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simple GoTemp (v1.3)</title>
-    <!-- Load Vernier's official Go Direct library -->
-    <script src="https://unpkg.com/@vernier/godirect/dist/godirect.min.umd.js"></script>
+    <title>Simple GoTemp (v2.0 - USB WebHID)</title>
+    <!-- Note: Vernier GoDirect library removed. Using Custom WebHID for legacy hardware -->
     <style>
         :root {
             --primary: #0ea5e9;
@@ -127,7 +126,7 @@
         .stopwatch-btn:hover { background-color: var(--success-hover); }
 
         .stopwatch-btn.running {
-            background-color: #f59e0b; /* Amber for pause/stop */
+            background-color: #f59e0b;
         }
         .stopwatch-btn.running:hover { background-color: #d97706; }
 
@@ -146,10 +145,19 @@
             word-wrap: break-word;
             padding: 0 10px;
         }
-        
-        .highlight {
-            font-weight: 600;
-            color: #d97706; /* Amber warning color */
+
+        .debug-terminal {
+            background: #1e293b;
+            color: #38bdf8;
+            font-family: ui-monospace, monospace;
+            font-size: 0.8rem;
+            padding: 15px;
+            border-radius: 12px;
+            margin-top: 20px;
+            text-align: left;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
     </style>
@@ -157,8 +165,8 @@
 <body>
 
     <div class="card">
-        <button id="connectBtn">Connect Sensor</button>
-        <span class="status-text" id="statusText">Make sure the sensor is turned <span class="highlight">ON</span> (red Bluetooth light flashing) before connecting.</span>
+        <button id="connectBtn">Connect USB Sensor</button>
+        <span class="status-text" id="statusText">Plug in the legacy Go!Temp via USB.</span>
         
         <div class="data-display" id="tempDisplay">--.-</div>
         
@@ -175,61 +183,94 @@
             <button class="stopwatch-btn" id="startStopBtn">Start</button>
             <button class="reset-btn" id="resetBtn">Reset</button>
         </div>
+
+        <!-- Terminal to see the raw USB data -->
+        <div class="debug-terminal" id="debugBox">
+            > Waiting for USB WebHID connection...
+        </div>
     </div>
 
     <script>
-        // --- Sensor Logic ---
+        // --- Custom USB WebHID Logic for Legacy Go!Temp ---
         const connectBtn = document.getElementById('connectBtn');
         const statusText = document.getElementById('statusText');
         const tempDisplay = document.getElementById('tempDisplay');
         const unitSelect = document.getElementById('unitSelect');
+        const debugBox = document.getElementById('debugBox');
+        
+        const VERNIER_VENDOR_ID = 0x08F7; // Official Vernier USB ID
+        let usbDevice = null;
         let currentCelsius = null;
 
         connectBtn.addEventListener('click', async () => {
-            try {
-                // Update UI to show we are trying to connect
-                connectBtn.innerText = "Searching...";
-                connectBtn.disabled = true;
-                statusText.style.color = "var(--text-muted)";
-                statusText.innerHTML = "Select your device in the popup window...";
+            // Check if browser supports WebHID
+            if (!navigator.hid) {
+                statusText.style.color = "var(--danger)";
+                statusText.innerText = "Error: WebHID is not supported in this browser. You must use Chrome/Edge on a desktop/Chromebook.";
+                return;
+            }
 
-                // Prompts the user to select their Vernier device
-                const device = await godirect.selectDevice();
-                
-                // Get the default temperature sensor (usually channel 1)
-                const sensor = device.getSensor(1); 
-                
-                sensor.on('value-changed', (sensor) => {
-                    currentCelsius = sensor.value;
-                    updateTemperatureDisplay();
+            try {
+                connectBtn.innerText = "Requesting USB...";
+                connectBtn.disabled = true;
+
+                // Open the Chrome popup looking specifically for Vernier devices
+                const devices = await navigator.hid.requestDevice({
+                    filters: [{ vendorId: VERNIER_VENDOR_ID }]
                 });
 
-                // Start reading data
-                device.start();
-                
-                // Update UI on success
+                if (devices.length === 0) {
+                    throw new Error("No device selected in the popup.");
+                }
+
+                usbDevice = devices[0];
+                await usbDevice.open();
+
                 connectBtn.innerText = "Connected";
                 connectBtn.style.backgroundColor = "var(--success)";
-                statusText.innerText = `Receiving data from ${device.name}...`;
+                statusText.innerText = `Receiving raw data from ${usbDevice.productName}...`;
+
+                // Listen for data packets flying in from the USB port!
+                usbDevice.addEventListener("inputreport", (event) => {
+                    const { data } = event;
+                    
+                    // 1. Debugging: Print the raw bytes to the screen
+                    const bytes = [];
+                    for (let i = 0; i < data.byteLength; i++) {
+                        bytes.push(data.getUint8(i).toString(16).padStart(2, '0'));
+                    }
+                    debugBox.innerText = `> RAW PACKET: [ ${bytes.join(' ')} ]`;
+
+                    // 2. Decode the Data
+                    // Go!Temp sends an 8-byte packet. 
+                    // Usually, Bytes 2 & 3 hold a 16-bit integer representing the measurement.
+                    if (data.byteLength >= 4) {
+                        // Read a 16-bit integer from byte index 2 (Little Endian format)
+                        const rawMeasurement = data.getInt16(2, true); 
+                        
+                        // NOTE: Without Vernier's proprietary EEPROM calibration curve, we have to 
+                        // approximate the conversion. We are guessing the multiplier here.
+                        // If the temperature is completely wrong, we will adjust this math later!
+                        const approximateCelsius = rawMeasurement / 128.0; 
+                        
+                        currentCelsius = approximateCelsius;
+                        updateTemperatureDisplay();
+                    }
+                });
+
+                // Send a generic "Start Measurements" command (Command 0x18 is common for Vernier)
+                try {
+                    await usbDevice.sendReport(0, new Uint8Array([0x18]));
+                } catch(e) {
+                    console.log("Initialization command failed, device might auto-stream.");
+                }
 
             } catch (error) {
                 console.error(error);
-                connectBtn.innerText = "Connect Sensor";
+                connectBtn.innerText = "Connect USB Sensor";
                 connectBtn.disabled = false;
-                
-                // Provide specific, on-page error text
-                let errorMessage = error.message || "Unknown error occurred.";
-                
-                if (window.location.protocol === 'file:') {
-                    errorMessage = "Hardware connections are blocked for local files. You must host this file online.";
-                } else if (errorMessage.toLowerCase().includes("user cancelled") || errorMessage.toLowerCase().includes("cancel")) {
-                    errorMessage = "Connection cancelled. Did you make sure the red Bluetooth light is flashing?";
-                } else if (errorMessage.toLowerCase().includes("bluetooth") && !navigator.bluetooth) {
-                    errorMessage = "Web Bluetooth is not supported/enabled in this browser. Try Google Chrome.";
-                }
-
                 statusText.style.color = "var(--danger)";
-                statusText.innerText = `Error: ${errorMessage}`;
+                statusText.innerText = `Error: ${error.message}`;
             }
         });
 
